@@ -50,3 +50,11 @@ personal-*
 
 # Internal development documentation
 DEVELOPMENT.md
+
+# Node.js
+node_modules/
+package-lock.json
+
+# TypeScript build output
+dist/
+*.tsbuildinfo
