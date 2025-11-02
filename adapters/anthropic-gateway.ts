@@ -43,18 +43,18 @@ fastify.post("/v1/messages", async (req, res) => {
 
     active = { provider, model };
 
-    // Always stream for Claude Code
-    res.raw.setHeader("Content-Type", "text/event-stream");
-    res.raw.setHeader("Cache-Control", "no-cache, no-transform");
-    res.raw.setHeader("Connection", "keep-alive");
-    // @ts-ignore
-    res.raw.flushHeaders?.();
-
+    // Validate API keys BEFORE setting headers
     if (provider === "openai") {
       const key = process.env.OPENAI_API_KEY;
       if (!key) {
         throw apiError(401, "OPENAI_API_KEY not set in ~/.claude-proxy/.env");
       }
+      // Set headers only after validation
+      res.raw.setHeader("Content-Type", "text/event-stream");
+      res.raw.setHeader("Cache-Control", "no-cache, no-transform");
+      res.raw.setHeader("Connection", "keep-alive");
+      // @ts-ignore
+      res.raw.flushHeaders?.();
       return chatOpenAI(res, body, model, key);
     }
 
@@ -63,6 +63,11 @@ fastify.post("/v1/messages", async (req, res) => {
       if (!key) {
         throw apiError(401, "OPENROUTER_API_KEY not set in ~/.claude-proxy/.env");
       }
+      res.raw.setHeader("Content-Type", "text/event-stream");
+      res.raw.setHeader("Cache-Control", "no-cache, no-transform");
+      res.raw.setHeader("Connection", "keep-alive");
+      // @ts-ignore
+      res.raw.flushHeaders?.();
       return chatOpenRouter(res, body, model, key);
     }
 
@@ -71,6 +76,11 @@ fastify.post("/v1/messages", async (req, res) => {
       if (!key) {
         throw apiError(401, "GEMINI_API_KEY not set in ~/.claude-proxy/.env");
       }
+      res.raw.setHeader("Content-Type", "text/event-stream");
+      res.raw.setHeader("Cache-Control", "no-cache, no-transform");
+      res.raw.setHeader("Connection", "keep-alive");
+      // @ts-ignore
+      res.raw.flushHeaders?.();
       return chatGemini(res, body, model, key);
     }
 
@@ -83,6 +93,7 @@ fastify.post("/v1/messages", async (req, res) => {
           "ANTHROPIC_UPSTREAM_URL and ANTHROPIC_API_KEY not set in ~/.claude-proxy/.env"
         );
       }
+      // Don't set headers here - passThrough will do it after validation
       return passThrough({
         res,
         body,
@@ -105,6 +116,7 @@ fastify.post("/v1/messages", async (req, res) => {
         "GLM_UPSTREAM_URL and ZAI_API_KEY not set in ~/.claude-proxy/.env. Run: ccx --setup"
       );
     }
+    // Don't set headers here - passThrough will do it after validation
     return passThrough({
       res,
       body,
