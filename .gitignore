@@ -50,6 +50,7 @@ personal-*
 
 # Internal development documentation
 DEVELOPMENT.md
+PR_DESCRIPTION.md
 
 # Node.js
 node_modules/
