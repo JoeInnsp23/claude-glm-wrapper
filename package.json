@@ -1,15 +1,19 @@
 {
   "name": "claude-glm-installer",
-  "version": "1.0.3",
-  "description": "Cross-platform installer for Claude Code with Z.AI GLM models. Run with: npx claude-glm-installer",
+  "version": "2.0.0",
+  "description": "Cross-platform installer for Claude Code with Z.AI GLM models and multi-provider proxy. Run with: npx claude-glm-installer",
   "keywords": [
     "claude",
     "claude-code",
     "glm",
     "z.ai",
+    "openai",
+    "openrouter",
+    "gemini",
     "ai",
     "llm",
-    "installer"
+    "installer",
+    "proxy"
   ],
   "homepage": "https://github.com/JoeInnsp23/claude-glm-wrapper#readme",
   "bugs": {
@@ -21,21 +25,36 @@
   },
   "license": "MIT",
   "author": "Joseph Stephenson-Mouzo",
+  "type": "module",
   "bin": {
     "claude-glm-installer": "bin/cli.js"
   },
   "files": [
     "bin/",
+    "adapters/",
     "install.sh",
     "install.ps1",
+    "tsconfig.json",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
     "preinstall": "node bin/preinstall.js",
+    "start:proxy": "tsx adapters/anthropic-gateway.ts",
+    "build": "tsc -p tsconfig.json",
     "test": "echo \"No tests yet\" && exit 0"
   },
   "engines": {
-    "node": ">=14.0.0"
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "eventsource-parser": "^1.1.2",
+    "fastify": "^4.28.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.15.6",
+    "typescript": "^5.6.3"
   }
 }

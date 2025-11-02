@@ -351,6 +351,201 @@ function New-ClaudeGlmFastWrapper {
     Write-Host "OK: Installed claude-glm-fast at $wrapperPath" -ForegroundColor Green
 }
 
+# Install ccx multi-provider proxy
+function Install-Ccx {
+    Write-Host "INSTALL: Installing ccx (multi-provider proxy)..." -ForegroundColor Cyan
+
+    $ccxHome = Join-Path $env:USERPROFILE ".claude-proxy"
+    $wrapperPath = Join-Path $UserBinDir "ccx.ps1"
+
+    # Create ccx home directory
+    if (-not (Test-Path $ccxHome)) {
+        New-Item -ItemType Directory -Path $ccxHome -Force | Out-Null
+    }
+
+    # Copy adapters directory from the npm package
+    $scriptDir = Split-Path -Parent $PSCommandPath
+
+    if (Test-Path (Join-Path $scriptDir "adapters")) {
+        Write-Host "  Copying adapters to $ccxHome\adapters..."
+        $adaptersSource = Join-Path $scriptDir "adapters"
+        $adaptersTarget = Join-Path $ccxHome "adapters"
+        if (Test-Path $adaptersTarget) {
+            Remove-Item -Recurse -Force $adaptersTarget
+        }
+        Copy-Item -Recurse $adaptersSource $adaptersTarget
+    } else {
+        Write-Host "  WARNING: adapters directory not found. Proxy may not work." -ForegroundColor Yellow
+    }
+
+    # Create ccx wrapper script
+    $ccxContent = @'
+param([switch]$Setup)
+
+$ErrorActionPreference = "Stop"
+
+$ROOT_DIR = Join-Path $env:USERPROFILE ".claude-proxy"
+$ENV_FILE = Join-Path $ROOT_DIR ".env"
+$PORT = if ($env:CLAUDE_PROXY_PORT) { $env:CLAUDE_PROXY_PORT } else { 17870 }
+
+if ($Setup) {
+    Write-Host "Setting up ~/.claude-proxy/.env..."
+    if (-not (Test-Path $ROOT_DIR)) {
+        New-Item -ItemType Directory -Path $ROOT_DIR | Out-Null
+    }
+
+    if (Test-Path $ENV_FILE) {
+        Write-Host "Existing .env found. Edit it manually at: $ENV_FILE"
+        exit 0
+    }
+
+    @"
+# Claude Proxy Configuration
+# Edit this file to add your API keys
+
+# OpenAI (optional)
+OPENAI_API_KEY=
+OPENAI_BASE_URL=https://api.openai.com/v1
+
+# OpenRouter (optional)
+OPENROUTER_API_KEY=
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_REFERER=
+OPENROUTER_TITLE=Claude Code via ccx
+
+# Gemini (optional)
+GEMINI_API_KEY=
+GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
+
+# Z.AI GLM (optional)
+GLM_UPSTREAM_URL=https://api.z.ai/api/anthropic
+ZAI_API_KEY=
+
+# Anthropic (optional)
+ANTHROPIC_UPSTREAM_URL=https://api.anthropic.com
+ANTHROPIC_API_KEY=
+ANTHROPIC_VERSION=2023-06-01
+
+# Proxy settings
+CLAUDE_PROXY_PORT=17870
+"@ | Out-File -FilePath $ENV_FILE -Encoding utf8
+
+    Write-Host "OK: Created $ENV_FILE"
+    Write-Host ""
+    Write-Host "Edit it to add your API keys, then run: ccx"
+    Write-Host ""
+    Write-Host "Example:"
+    Write-Host "  notepad $ENV_FILE"
+    exit 0
+}
+
+# Load .env file
+if (Test-Path $ENV_FILE) {
+    Get-Content $ENV_FILE | ForEach-Object {
+        if ($_ -match '^\s*([^#][^=]+)=(.*)$') {
+            $name = $matches[1].Trim()
+            $value = $matches[2].Trim()
+            if ($value) {
+                [Environment]::SetEnvironmentVariable($name, $value, "Process")
+            }
+        }
+    }
+}
+
+$env:ANTHROPIC_BASE_URL = "http://127.0.0.1:$PORT"
+if (-not $env:ANTHROPIC_AUTH_TOKEN) {
+    $env:ANTHROPIC_AUTH_TOKEN = "local-proxy-token"
+}
+
+Write-Host "[ccx] Starting Claude Code with multi-provider proxy..."
+Write-Host "[ccx] Proxy will listen on: $($env:ANTHROPIC_BASE_URL)"
+
+# Start proxy
+$gatewayPath = Join-Path $ROOT_DIR "adapters\anthropic-gateway.ts"
+$logPath = Join-Path $env:TEMP "claude-proxy.log"
+$errorLogPath = Join-Path $env:TEMP "claude-proxy-error.log"
+
+$proc = Start-Process "npx" -ArgumentList "-y","tsx",$gatewayPath -PassThru -WindowStyle Hidden -RedirectStandardOutput $logPath -RedirectStandardError $errorLogPath
+
+# Wait for health check
+Write-Host "[ccx] Waiting for proxy to start..."
+$ready = $false
+for ($i = 0; $i -lt 30; $i++) {
+    try {
+        $response = Invoke-WebRequest -Uri "http://127.0.0.1:$PORT/healthz" -UseBasicParsing -TimeoutSec 1 -ErrorAction Stop
+        if ($response.StatusCode -eq 200) {
+            Write-Host "[ccx] Proxy ready!"
+            $ready = $true
+            break
+        }
+    } catch {
+        Start-Sleep -Milliseconds 500
+    }
+}
+
+if (-not $ready) {
+    Write-Host "ERROR: Proxy failed to start. Check logs:" -ForegroundColor Red
+    Write-Host "  $logPath"
+    Write-Host "  $errorLogPath"
+    if (Test-Path $errorLogPath) {
+        Get-Content $errorLogPath
+    }
+    if ($proc -and -not $proc.HasExited) { $proc.Kill() }
+    exit 1
+}
+
+Write-Host ""
+Write-Host "MODELS: Available model prefixes:"
+Write-Host "  openai:<model>      - OpenAI models (gpt-4o, gpt-4o-mini, etc.)"
+Write-Host "  openrouter:<model>  - OpenRouter models"
+Write-Host "  gemini:<model>      - Google Gemini models"
+Write-Host "  glm:<model>         - Z.AI GLM models (glm-4.6, glm-4.5, etc.)"
+Write-Host "  anthropic:<model>   - Anthropic Claude models"
+Write-Host ""
+Write-Host "TIP: Switch models in-session with: /model <prefix>:<model-name>"
+Write-Host ""
+
+try {
+    & claude @args
+} finally {
+    Write-Host ""
+    Write-Host "[ccx] Shutting down proxy..."
+    if ($proc -and -not $proc.HasExited) {
+        $proc.Kill()
+    }
+}
+'@
+
+    Set-Content -Path $wrapperPath -Value $ccxContent
+    Write-Host "OK: Installed ccx at $wrapperPath" -ForegroundColor Green
+
+    # Add ccx function to PowerShell profile
+    Add-CcxFunction
+}
+
+# Add ccx function to PowerShell profile
+function Add-CcxFunction {
+    if (-not (Test-Path -LiteralPath $PROFILE)) {
+        New-Item -ItemType File -Path $PROFILE -Force | Out-Null
+    }
+
+    $content = Get-Content $PROFILE -Raw -ErrorAction SilentlyContinue
+
+    # Check if function already exists
+    if ($content -match "function ccx") {
+        return
+    }
+
+    # Add ccx function
+    $ccxFunction = @"
+
+# ccx multi-provider proxy function
+function ccx { & `"$UserBinDir\ccx.ps1`" @args }
+"@
+
+    Add-Content $PROFILE $ccxFunction
+}
+
 # Check Claude Code availability
 function Test-ClaudeInstallation {
     Write-Host "CHECKING: Claude Code installation..."
@@ -640,6 +835,27 @@ function Install-ClaudeGlm {
     New-ClaudeGlmFastWrapper
     Add-PowerShellAliases
 
+    # Ask about ccx installation
+    Write-Host ""
+    Write-Host "MULTI-PROVIDER: Multi-Provider Proxy (ccx)"
+    Write-Host "================================"
+    Write-Host "ccx allows you to switch between multiple AI providers in a single session:"
+    Write-Host "  • OpenAI (GPT-4, GPT-4o, etc.)"
+    Write-Host "  • OpenRouter (access to many models)"
+    Write-Host "  • Google Gemini"
+    Write-Host "  • Z.AI GLM models"
+    Write-Host "  • Anthropic Claude"
+    Write-Host ""
+    $installCcxChoice = Read-Host "Install ccx? (Y/n)"
+
+    $ccxInstalled = $false
+    if ($installCcxChoice -ne "n" -and $installCcxChoice -ne "N") {
+        Install-Ccx
+        Write-Host ""
+        Write-Host "OK: ccx installed! Run 'ccx --setup' to configure API keys." -ForegroundColor Green
+        $ccxInstalled = $true
+    }
+
     # Final instructions
     Write-Host ""
     Write-Host "OK: Installation complete!"
@@ -658,12 +874,18 @@ function Install-ClaudeGlm {
     Write-Host "   claude-glm      - GLM-4.6 (latest)"
     Write-Host "   claude-glm-4.5  - GLM-4.5"
     Write-Host "   claude-glm-fast - GLM-4.5-Air (fast)"
+    if ($ccxInstalled) {
+        Write-Host "   ccx             - Multi-provider proxy (switch models in-session)"
+    }
     Write-Host ""
     Write-Host "Aliases:"
     Write-Host "   cc    - claude (regular Claude)"
     Write-Host "   ccg   - claude-glm (GLM-4.6)"
     Write-Host "   ccg45 - claude-glm-4.5 (GLM-4.5)"
     Write-Host "   ccf   - claude-glm-fast"
+    if ($ccxInstalled) {
+        Write-Host "   ccx   - Multi-provider proxy"
+    }
     Write-Host ""
 
     if ($ZaiApiKey -eq "YOUR_ZAI_API_KEY_HERE") {
