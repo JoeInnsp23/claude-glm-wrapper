@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENV_FILE="$HOME/.claude-proxy/.env"
+PORT="${CLAUDE_PROXY_PORT:-17870}"
+
+# Check if --setup flag is provided
+if [ "${1:-}" = "--setup" ]; then
+    echo "Setting up ~/.claude-proxy/.env..."
+    mkdir -p "$HOME/.claude-proxy"
+
+    if [ -f "$ENV_FILE" ]; then
+        echo "Existing .env found. Edit it manually at: $ENV_FILE"
+        exit 0
+    fi
+
+    cat > "$ENV_FILE" << 'EOF'
+# Claude Proxy Configuration
+# Edit this file to add your API keys
+
+# OpenAI (optional)
+OPENAI_API_KEY=
+OPENAI_BASE_URL=https://api.openai.com/v1
+
+# OpenRouter (optional)
+OPENROUTER_API_KEY=
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_REFERER=
+OPENROUTER_TITLE=Claude Code via ccx
+
+# Gemini (optional)
+GEMINI_API_KEY=
+GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
+
+# Z.AI GLM (optional - for glm: routing)
+GLM_UPSTREAM_URL=https://api.z.ai/api/anthropic
+ZAI_API_KEY=
+
+# Anthropic (optional - for anthropic: routing)
+ANTHROPIC_UPSTREAM_URL=https://api.anthropic.com
+ANTHROPIC_API_KEY=
+ANTHROPIC_VERSION=2023-06-01
+
+# Proxy settings
+CLAUDE_PROXY_PORT=17870
+EOF
+
+    echo "✅ Created $ENV_FILE"
+    echo ""
+    echo "Edit it to add your API keys, then run: ccx"
+    echo ""
+    echo "Example:"
+    echo "  nano $ENV_FILE"
+    exit 0
+fi
+
+# Source the .env file if it exists
+if [ -f "$ENV_FILE" ]; then
+    set -a
+    source "$ENV_FILE"
+    set +a
+fi
+
+export ANTHROPIC_BASE_URL="http://127.0.0.1:${PORT}"
+export ANTHROPIC_AUTH_TOKEN="${ANTHROPIC_AUTH_TOKEN:-local-proxy-token}"
+
+echo "[ccx] Starting Claude Code with multi-provider proxy..."
+echo "[ccx] Proxy will listen on: ${ANTHROPIC_BASE_URL}"
+
+# Start proxy in background
+npx -y tsx "${ROOT_DIR}/adapters/anthropic-gateway.ts" > /tmp/claude-proxy.log 2>&1 &
+PROXY_PID=$!
+
+cleanup() {
+    echo ""
+    echo "[ccx] Shutting down proxy..."
+    kill ${PROXY_PID} 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+# Wait for proxy to be ready (health check)
+echo "[ccx] Waiting for proxy to start..."
+for i in {1..30}; do
+    if curl -sf "http://127.0.0.1:${PORT}/healthz" >/dev/null 2>&1; then
+        echo "[ccx] Proxy ready!"
+        break
+    fi
+    if [ $i -eq 30 ]; then
+        echo "❌ Proxy failed to start. Check /tmp/claude-proxy.log"
+        cat /tmp/claude-proxy.log
+        exit 1
+    fi
+    sleep 0.5
+done
+
+echo ""
+echo "🎯 Available model prefixes:"
+echo "  openai:<model>      - OpenAI models (gpt-4o, gpt-4o-mini, etc.)"
+echo "  openrouter:<model>  - OpenRouter models"
+echo "  gemini:<model>      - Google Gemini models"
+echo "  glm:<model>         - Z.AI GLM models (glm-4.6, glm-4.5, etc.)"
+echo "  anthropic:<model>   - Anthropic Claude models"
+echo ""
+echo "💡 Switch models in-session with: /model <prefix>:<model-name>"
+echo ""
+
+# Hand off to Claude Code
+exec claude "$@"

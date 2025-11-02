@@ -523,6 +523,168 @@ EOF
     echo "✅ Installed claude-anthropic at $wrapper_path"
 }
 
+# Install ccx multi-provider proxy
+install_ccx() {
+    echo "🔧 Installing ccx (multi-provider proxy)..."
+
+    local ccx_home="$HOME/.claude-proxy"
+    local wrapper_path="$USER_BIN_DIR/ccx"
+
+    # Create ccx home directory
+    mkdir -p "$ccx_home"
+
+    # Copy adapters directory from the npm package
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+    if [ -d "$script_dir/adapters" ]; then
+        echo "  Copying adapters to $ccx_home/adapters..."
+        cp -r "$script_dir/adapters" "$ccx_home/"
+    else
+        echo "⚠️  Warning: adapters directory not found. Proxy may not work."
+    fi
+
+    # Create ccx wrapper script
+    cat > "$wrapper_path" << 'CCXEOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$HOME/.claude-proxy"
+ENV_FILE="$ROOT_DIR/.env"
+PORT="${CLAUDE_PROXY_PORT:-17870}"
+
+# Check if --setup flag is provided
+if [ "${1:-}" = "--setup" ]; then
+    echo "Setting up ~/.claude-proxy/.env..."
+    mkdir -p "$ROOT_DIR"
+
+    if [ -f "$ENV_FILE" ]; then
+        echo "Existing .env found. Edit it manually at: $ENV_FILE"
+        exit 0
+    fi
+
+    cat > "$ENV_FILE" << 'EOF'
+# Claude Proxy Configuration
+# Edit this file to add your API keys
+
+# OpenAI (optional)
+OPENAI_API_KEY=
+OPENAI_BASE_URL=https://api.openai.com/v1
+
+# OpenRouter (optional)
+OPENROUTER_API_KEY=
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_REFERER=
+OPENROUTER_TITLE=Claude Code via ccx
+
+# Gemini (optional)
+GEMINI_API_KEY=
+GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
+
+# Z.AI GLM (optional - for glm: routing)
+GLM_UPSTREAM_URL=https://api.z.ai/api/anthropic
+ZAI_API_KEY=
+
+# Anthropic (optional - for anthropic: routing)
+ANTHROPIC_UPSTREAM_URL=https://api.anthropic.com
+ANTHROPIC_API_KEY=
+ANTHROPIC_VERSION=2023-06-01
+
+# Proxy settings
+CLAUDE_PROXY_PORT=17870
+EOF
+
+    echo "✅ Created $ENV_FILE"
+    echo ""
+    echo "Edit it to add your API keys, then run: ccx"
+    echo ""
+    echo "Example:"
+    echo "  nano $ENV_FILE"
+    exit 0
+fi
+
+# Source the .env file if it exists
+if [ -f "$ENV_FILE" ]; then
+    set -a
+    source "$ENV_FILE"
+    set +a
+fi
+
+export ANTHROPIC_BASE_URL="http://127.0.0.1:${PORT}"
+export ANTHROPIC_AUTH_TOKEN="${ANTHROPIC_AUTH_TOKEN:-local-proxy-token}"
+
+echo "[ccx] Starting Claude Code with multi-provider proxy..."
+echo "[ccx] Proxy will listen on: ${ANTHROPIC_BASE_URL}"
+
+# Start proxy in background
+npx -y tsx "${ROOT_DIR}/adapters/anthropic-gateway.ts" > /tmp/claude-proxy.log 2>&1 &
+PROXY_PID=$!
+
+cleanup() {
+    echo ""
+    echo "[ccx] Shutting down proxy..."
+    kill ${PROXY_PID} 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+# Wait for proxy to be ready (health check)
+echo "[ccx] Waiting for proxy to start..."
+for i in {1..30}; do
+    if curl -sf "http://127.0.0.1:${PORT}/healthz" >/dev/null 2>&1; then
+        echo "[ccx] Proxy ready!"
+        break
+    fi
+    if [ $i -eq 30 ]; then
+        echo "❌ Proxy failed to start. Check /tmp/claude-proxy.log"
+        cat /tmp/claude-proxy.log
+        exit 1
+    fi
+    sleep 0.5
+done
+
+echo ""
+echo "🎯 Available model prefixes:"
+echo "  openai:<model>      - OpenAI models (gpt-4o, gpt-4o-mini, etc.)"
+echo "  openrouter:<model>  - OpenRouter models"
+echo "  gemini:<model>      - Google Gemini models"
+echo "  glm:<model>         - Z.AI GLM models (glm-4.6, glm-4.5, etc.)"
+echo "  anthropic:<model>   - Anthropic Claude models"
+echo ""
+echo "💡 Switch models in-session with: /model <prefix>:<model-name>"
+echo ""
+
+# Hand off to Claude Code
+exec claude "$@"
+CCXEOF
+
+    chmod +x "$wrapper_path"
+    echo "✅ Installed ccx at $wrapper_path"
+
+    # Add ccx alias to shell config
+    add_ccx_alias
+}
+
+# Add ccx alias to shell configuration
+add_ccx_alias() {
+    local rc_file=$(detect_shell_rc)
+
+    if [ -z "$rc_file" ] || [ ! -f "$rc_file" ]; then
+        echo "⚠️  Could not detect shell rc file, skipping ccx alias"
+        return
+    fi
+
+    # Check if alias already exists
+    if grep -q "alias ccx=" "$rc_file" 2>/dev/null; then
+        return
+    fi
+
+    # Add ccx alias
+    if [[ "$rc_file" == *".cshrc" ]]; then
+        echo "alias ccx 'ccx'" >> "$rc_file"
+    else
+        echo "alias ccx='ccx'" >> "$rc_file"
+    fi
+}
+
 # Create shell aliases
 create_shell_aliases() {
     local rc_file=$(detect_shell_rc)
@@ -661,10 +823,29 @@ main() {
     create_claude_glm_45_wrapper
     create_claude_glm_fast_wrapper
     create_shell_aliases
-    
+
+    # Ask about ccx installation
+    echo ""
+    echo "📦 Multi-Provider Proxy (ccx)"
+    echo "================================"
+    echo "ccx allows you to switch between multiple AI providers in a single session:"
+    echo "  • OpenAI (GPT-4, GPT-4o, etc.)"
+    echo "  • OpenRouter (access to many models)"
+    echo "  • Google Gemini"
+    echo "  • Z.AI GLM models"
+    echo "  • Anthropic Claude"
+    echo ""
+    read -p "Install ccx? (Y/n): " install_ccx_choice
+
+    if [ "$install_ccx_choice" != "n" ] && [ "$install_ccx_choice" != "N" ]; then
+        install_ccx
+        echo ""
+        echo "✅ ccx installed! Run 'ccx --setup' to configure API keys."
+    fi
+
     # Final instructions
     local rc_file=$(detect_shell_rc)
-    
+
     echo ""
     echo "✅ Installation complete!"
     echo ""
@@ -682,12 +863,18 @@ main() {
     echo "   claude-glm      - GLM-4.6 (latest)"
     echo "   claude-glm-4.5  - GLM-4.5"
     echo "   claude-glm-fast - GLM-4.5-Air (fast)"
+    if [ "$install_ccx_choice" != "n" ] && [ "$install_ccx_choice" != "N" ]; then
+        echo "   ccx             - Multi-provider proxy (switch models in-session)"
+    fi
     echo ""
     echo "Aliases:"
     echo "   cc    - claude (regular Claude)"
     echo "   ccg   - claude-glm (GLM-4.6)"
     echo "   ccg45 - claude-glm-4.5 (GLM-4.5)"
     echo "   ccf   - claude-glm-fast"
+    if [ "$install_ccx_choice" != "n" ] && [ "$install_ccx_choice" != "N" ]; then
+        echo "   ccx   - Multi-provider proxy"
+    fi
     echo ""
     
     if [ "$ZAI_API_KEY" = "YOUR_ZAI_API_KEY_HERE" ]; then

@@ -2,14 +2,15 @@
 
 Use [Z.AI's GLM models](https://z.ai) with [Claude Code](https://www.anthropic.com/claude-code) — **without losing your existing Claude setup!**
 
-Switch freely between GLM-4.6, GLM-4.5, GLM-4.5-Air, and original Anthropic Claude models using simple commands.
+Switch freely between multiple AI providers: GLM, OpenAI, Gemini, OpenRouter, and Anthropic Claude.
 
 ## Why This Wrapper?
 
-**💰 Cost-effective**: Z.AI's GLM models offer competitive pricing (often with free tiers)
+**💰 Cost-effective**: Access to multiple providers with competitive pricing
 **🔄 Risk-free**: Your existing Claude Code setup remains completely untouched
-**⚡ Multiple options**: Choose between GLM-4.6 (latest), GLM-4.5, and GLM-4.5-Air (fast)
-**🎯 Perfect for**: Development, testing, or when you want to conserve your Claude API credits
+**⚡ Multiple options**: Two modes - dedicated wrappers or multi-provider proxy
+**🔀 In-session switching**: With ccx, switch models without restarting
+**🎯 Perfect for**: Development, testing, or when you want model flexibility
 
 ## Quick Start
 
@@ -52,14 +53,14 @@ That's it! 🎉
 #### macOS / Linux
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/JoeInnsp23/claude-glm-wrapper/powershell/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/JoeInnsp23/claude-glm-wrapper/main/install.sh)
 source ~/.zshrc  # or ~/.bashrc
 ```
 
 #### Windows (PowerShell)
 
 ```powershell
-iwr -useb https://raw.githubusercontent.com/JoeInnsp23/claude-glm-wrapper/powershell/install.ps1 | iex
+iwr -useb https://raw.githubusercontent.com/JoeInnsp23/claude-glm-wrapper/main/install.ps1 | iex
 . $PROFILE
 ```
 
@@ -116,7 +117,7 @@ source ~/.zshrc  # or ~/.bashrc
 
 **One-Line Install:**
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/JoeInnsp23/claude-glm-wrapper/powershell/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/JoeInnsp23/claude-glm-wrapper/main/install.sh)
 source ~/.zshrc  # or ~/.bashrc
 ```
 
@@ -135,7 +136,7 @@ source ~/.zshrc
 
 **One-Line Install:**
 ```powershell
-iwr -useb https://raw.githubusercontent.com/JoeInnsp23/claude-glm-wrapper/powershell/install.ps1 | iex
+iwr -useb https://raw.githubusercontent.com/JoeInnsp23/claude-glm-wrapper/main/install.ps1 | iex
 . $PROFILE
 ```
 
@@ -166,8 +167,20 @@ The installer creates these commands and aliases:
 | `ccg` | `claude-glm` | GLM-4.6 (latest) | Best quality GLM model |
 | `ccg45` | `claude-glm-4.5` | GLM-4.5 | Previous version of GLM |
 | `ccf` | `claude-glm-fast` | GLM-4.5-Air (fast) | Quicker responses, lower cost |
+| `ccx` | `ccx` | Multi-provider proxy | Switch between providers in-session |
 
 **💡 Tip**: Use the short aliases! They're faster to type and easier to remember.
+
+**🆕 New: ccx Multi-Provider Proxy**
+
+The `ccx` command starts a local proxy that lets you switch between multiple AI providers in a single session:
+- **OpenAI**: GPT-4o, GPT-4o-mini, and more
+- **OpenRouter**: Access to hundreds of models
+- **Google Gemini**: Gemini 1.5 Pro and Flash
+- **Z.AI GLM**: GLM-4.6, GLM-4.5, GLM-4.5-Air
+- **Anthropic**: Claude 3.5 Sonnet, etc.
+
+Switch models mid-session using `/model <provider>:<model-name>`. Perfect for comparing responses or using the right model for each task!
 
 ### How It Works
 
@@ -245,6 +258,126 @@ cc
 ```
 
 **Each session is independent** — your chat history stays separate!
+
+## Using ccx (Multi-Provider Proxy)
+
+### Setup
+
+After installation, configure your API keys:
+
+```bash
+# First time setup
+ccx --setup
+```
+
+This creates `~/.claude-proxy/.env`. Edit it to add your API keys:
+
+```bash
+# macOS / Linux
+nano ~/.claude-proxy/.env
+
+# Windows
+notepad %USERPROFILE%\.claude-proxy\.env
+```
+
+Add keys for the providers you want to use:
+
+```ini
+# OpenAI
+OPENAI_API_KEY=sk-...
+
+# OpenRouter
+OPENROUTER_API_KEY=sk-or-...
+
+# Gemini
+GEMINI_API_KEY=AIza...
+
+# Z.AI GLM
+GLM_UPSTREAM_URL=https://api.z.ai/api/anthropic
+ZAI_API_KEY=...
+
+# Anthropic (if you want to route through the proxy)
+ANTHROPIC_UPSTREAM_URL=https://api.anthropic.com
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+### Starting ccx
+
+```bash
+ccx
+```
+
+The proxy starts automatically and Claude Code connects to it.
+
+### Switching Models
+
+Use Claude Code's built-in `/model` command with provider prefixes:
+
+```
+/model openai:gpt-4o
+/model openai:gpt-4o-mini
+/model openrouter:anthropic/claude-3.5-sonnet
+/model openrouter:meta-llama/llama-3.1-70b-instruct
+/model gemini:gemini-1.5-pro
+/model gemini:gemini-1.5-flash
+/model glm:glm-4.6
+/model glm:glm-4.5
+/model anthropic:claude-3-5-sonnet-20241022
+```
+
+### ccx Workflows
+
+**Workflow 1: Compare Model Responses**
+```bash
+ccx
+# Ask a question
+/model openai:gpt-4o
+# Ask the same question
+/model gemini:gemini-1.5-pro
+# Ask again - compare the responses!
+```
+
+**Workflow 2: Cost Optimization**
+```bash
+ccx
+# Start with a fast, cheap model for exploration
+/model glm:glm-4.5-air
+# ... work on the problem ...
+# Switch to a more powerful model when needed
+/model openai:gpt-4o
+```
+
+**Workflow 3: Leverage Model Strengths**
+```bash
+ccx
+# Use GPT-4 for coding
+/model openai:gpt-4o
+# ... write code ...
+# Use Claude for writing/docs
+/model openrouter:anthropic/claude-3.5-sonnet
+# ... write documentation ...
+```
+
+### ccx Advantages
+
+✅ **Single Session**: No need to exit and restart
+✅ **Context Preserved**: Chat history continues across model switches
+✅ **Easy Comparison**: Switch models to compare responses
+✅ **Flexibility**: Use the best model for each task
+✅ **Provider Options**: OpenAI, OpenRouter, Gemini, GLM, Anthropic
+
+### ccx vs Dedicated Wrappers
+
+| Feature | ccx | ccg/ccg45/ccf |
+|---------|-----|---------------|
+| Switch models in-session | ✅ Yes | ❌ No |
+| Multiple providers | ✅ Yes | ❌ GLM only |
+| Separate chat history | ❌ No | ✅ Yes |
+| Simple setup | ✅ .env file | ✅ Installer |
+| Overhead | Proxy startup | None |
+
+**Use ccx when**: You want flexibility and in-session switching
+**Use dedicated wrappers when**: You want separate histories for different models
 
 ## Configuration Details
 
@@ -360,12 +493,37 @@ source ~/.zshrc  # or ~/.bashrc
 
 ### ❌ API Authentication Errors
 
-**Problem**: Z.AI API key issues.
+**Problem**: API key issues.
 
-**Solutions**:
+**Solutions for ccg/ccf/ccg45**:
 1. **Check your key**: Visit [z.ai/manage-apikey/apikey-list](https://z.ai/manage-apikey/apikey-list)
 2. **Verify credits**: Make sure your Z.AI account has available credits
 3. **Update the key**: Run `bash install.sh` and choose "Update API key only"
+
+**Solutions for ccx**:
+1. **Check your .env file**: Edit `~/.claude-proxy/.env`
+2. **Verify keys are set**: Make sure the API keys for the providers you're using are filled in
+3. **No empty values**: If you're not using a provider, either leave it blank or remove the line
+4. **Reload**: Restart ccx after editing .env
+
+### ❌ ccx Proxy Won't Start
+
+**Problem**: Proxy fails to start or times out.
+
+**Solutions**:
+1. **Check logs**: Look at `/tmp/claude-proxy.log` (Unix) or `%TEMP%\claude-proxy.log` (Windows)
+2. **Port in use**: Another process might be using port 17870. Set `CLAUDE_PROXY_PORT=17871` in .env
+3. **Missing dependencies**: Run `npm install -g tsx` to ensure TypeScript runner is available
+4. **Check adapters**: Ensure `~/.claude-proxy/adapters/` directory exists and contains TS files
+
+### ❌ Models Don't Switch in ccx
+
+**Problem**: `/model` command doesn't seem to work.
+
+**Solutions**:
+1. **Check provider prefix**: Use format `/model provider:model-name` (e.g., `/model openai:gpt-4o`)
+2. **Verify API key**: Make sure the provider's API key is set in `~/.claude-proxy/.env`
+3. **Check proxy logs**: Look for errors in `/tmp/claude-proxy.log`
 
 ### ❌ Wrong Model Being Used
 
@@ -472,14 +630,26 @@ Then reload: `. $PROFILE`
 **A**: No! Your regular Claude Code setup is completely untouched. The wrappers use separate config directories.
 
 ### Q: Can I use both GLM and Claude in the same project?
-**A**: Yes! Just use `ccg` for GLM sessions and `cc` for Claude sessions. Each maintains its own chat history.
+**A**: Yes! Just use `ccg` for GLM sessions and `cc` for Claude sessions. Each maintains its own chat history. Or use `ccx` to switch between providers in a single session.
+
+### Q: Which should I use: ccx or dedicated wrappers (ccg/ccf)?
+**A**:
+- **Use ccx** if you want to switch between multiple providers (OpenAI, Gemini, OpenRouter, GLM, Anthropic) in the same session
+- **Use dedicated wrappers** if you want separate chat histories for different models/providers
 
 ### Q: Which model should I use?
 **A**:
+- Use **`ccx`** for: Maximum flexibility, model comparison, leveraging different model strengths
 - Use **`ccg` (GLM-4.6)** for: Latest model, complex coding, refactoring, detailed explanations
 - Use **`ccg45` (GLM-4.5)** for: Previous version, if you need consistency with older projects
 - Use **`ccf` (GLM-4.5-Air)** for: Quick questions, simple tasks, faster responses
 - Use **`cc` (Claude)** for: Your regular Anthropic Claude setup
+
+### Q: How do I switch models in ccx?
+**A**: Use the `/model` command with the format `<provider>:<model-name>`. For example:
+- `/model openai:gpt-4o`
+- `/model gemini:gemini-1.5-pro`
+- `/model glm:glm-4.6`
 
 ### Q: Is this secure?
 **A**: Yes! Your API keys are stored locally on your machine in wrapper scripts (bash or PowerShell, depending on your OS). Keep your scripts directory secure with appropriate permissions.
